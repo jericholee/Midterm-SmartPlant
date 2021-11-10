@@ -14,9 +14,19 @@
 #define OLED_RESET D4
 Adafruit_SSD1306 display(OLED_RESET);
 
+Adafruit_BME280 bme;
+
 String DateTime, TimeOnly;
 const int soilProbe = A0;
+const int hexAddress = 0x76;
 int val = 0;
+bool bmeStatus;
+
+float tempf;
+float tempC; 
+float pressPA; 
+float humidRH; 
+
 
 void setup() {
 Serial.begin(9600);
@@ -32,7 +42,6 @@ Serial.begin(9600);
     display.display();
     delay(2000);
     display.clearDisplay();
-
 }
 
 void loop() {
