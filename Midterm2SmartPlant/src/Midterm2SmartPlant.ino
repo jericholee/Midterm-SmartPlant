@@ -5,16 +5,23 @@
  * Date:11/9/2021
  */
 
+
 #include "Adafruit_GFX.h"
 #include "AdaFruit_SSD1306.h"
 #include "Particle.h"
 #include "Wire.h"
 #include "Adafruit_BME280.h"
-#define SEALEVELPRESSURE_HPA (1013.25)
+#include "math.h"
+#include "Grove_Air_quality_Sensor.h"
 
-#define OLED_RESET D4
+const int DustSensor = D5;
+const unsigned long SensorReadInterval = 30000;
+const int OLED_RESET = D4;
+
+const int AirQ = A3;
+AirQualitySensor aqSensor(AirQ);
+
 Adafruit_SSD1306 display(OLED_RESET);
-
 Adafruit_BME280 bme;
 
 String DateTime, TimeOnly;
@@ -22,17 +29,29 @@ const int soilProbe = A0;
 const int hexAddress = 0x76;
 int val = 0;
 
+const int pumpPin = D11;
+
 bool bmeStatus;
 unsigned long delayTime; 
+unsigned long lastInterval;
+unsigned long lowpulseoccupancy = 0;
+unsigned long last_lpo = 0;
+unsigned long duration;
 
 float tempf;
 float tempC; 
 float pressPA; 
 float humidRH; 
 
+float ratio = 0;
+float Dust = 0;
 
-void setup() {
-  Serial.begin(9600);
+
+void setup() { //                      BEGINNING OF VOID SETUP 
+    Serial.begin(9600);
+    pinMode(pumpPin, OUTPUT);
+    pinMode(DustSensor, INPUT);
+    lastInterval = millis();
     pinMode(soilProbe,INPUT);
     analogRead(soilProbe);
     while (!Serial);// time to get serial running
@@ -49,6 +68,7 @@ void setup() {
         Serial.print("ID of 0x61 represents a BME 680.\n");
       while (1);
 }
+
   Serial.println("-- Default Test --");
   Serial.println();
 
@@ -62,9 +82,30 @@ void setup() {
     display.display();
     delay(2000);
     display.clearDisplay();
+    
+  if(aqSensor.init()) {
+    Serial.println("Air Quality Sensor ready,");
+  }
+  else {
+    Serial.println("Air Quality Sensor ERROR!");
+   }
   }
 
-void loop() { 
+void loop() { //                          BEGINNING OF VOID LOOP 
+  digitalWrite(pumpPin, HIGH);
+  delay(1000);
+  digitalWrite(pumpPin, LOW);
+
+   duration = pulseIn(DustSensor, LOW);
+  lowpulseoccupancy = lowpulseoccupancy + duration;
+  if((millis() - lastInterval) > SensorReadInterval) {
+     getDustSensorReadings();
+      lowpulseoccupancy = 0;
+      lastInterval = millis();
+      String quality = getAirQuality();
+      Serial.printlnf("Air Quality: %s", quality.c_str());
+   }
+  String quality = getAirQuality();
    DateTime = Time.timeStr(); // Current Date and Time from Particle Time class
    val = analogRead(soilProbe);
    tempC = bme.readTemperature();
@@ -77,13 +118,34 @@ void loop() {
    display.setTextSize(1);
    display.setTextColor(WHITE);
    display.setCursor(0,0);
-   display.printf("%s\n", DateTime.c_str());
+   display.printf("%s\n", DateTime.c_str()); //Start of OLED display details. 
    display.printf("Soil = %i", val);
    display.println();
    display.printf("Temp: %.2f\n",tempf);
    display.printf("Hum: %.2f\n",humidRH);
+   display.printlnf("Dust: %f", Dust);
+   display.printlnf("Air Quality: %s", quality.c_str());
    display.display();
    delay(5000);
+}
+
+String getAirQuality() {
+  int quality = aqSensor.slope();
+  String qual = "None";
+
+if(quality == AirQualitySensor::FORCE_SIGNAL) {
+  qual = "Danger";
+}
+else if(quality == AirQualitySensor::HIGH_POLLUTION) {
+  qual = "High Pollution";
+}
+else if(quality == AirQualitySensor::LOW_POLLUTION) {
+  qual = "Low Pollution";
+}
+else if(quality == AirQualitySensor::FRESH_AIR) {
+  qual = "Fresh Air";
+}
+return qual;
 }
   
  void printValues() {
@@ -95,14 +157,16 @@ void loop() {
     Serial.println("%");
 }
 
-// void showTemp(void) {
-//  display.clearDisplay();
-//  display.setTextSize(1);
-//  display.setTextColor(WHITE);
-//  display.setCursor(0,0);
-//  display.setRotation(0);
-//  display.println(tempf, humidRH);
-//  display.printf("tempature = %.2f\n, humidity = %.2f\n",tempf, humidRH);
-//  display.display();
-// delay(1000); 
-// }
+void getDustSensorReadings() {
+if(lowpulseoccupancy == 0) {
+  lowpulseoccupancy = last_lpo;
+}
+else {
+  last_lpo = lowpulseoccupancy;
+}
+  ratio = lowpulseoccupancy / (SensorReadInterval * 10.0);
+  Dust = 1.1 * pow(ratio, 3) - 3.8 * pow(ratio, 2) + 520 * ratio + 0.62;
+  // Serial.printlnf("LPO: %i", lowpulseoccupancy);
+  // Serial.printlnf("Ratio: %f%%", ratio);
+  Serial.printlnf("Dust: %f", Dust);
+}
