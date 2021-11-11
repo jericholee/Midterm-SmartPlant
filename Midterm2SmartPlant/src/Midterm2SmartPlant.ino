@@ -27,7 +27,7 @@ const int AirQ = A3;
 const int pumpPin = D11;
 const int soilProbe = A0;
 const int hexAddress = 0x76;
-const int threshold = 3000; 
+const int moistThresh = 5000;
 int moist = 0;
 bool bmeStatus;
 
@@ -119,13 +119,9 @@ void setup() { //                      BEGINNING OF VOID SETUP
   }
 
 void loop() { //                          BEGINNING OF VOID LOOP 
-  digitalWrite(pumpPin, HIGH);
-  delay(1000);
-  digitalWrite(pumpPin, LOW);
-  if(moist) {
    duration = pulseIn(DustSensor, LOW);
-  }
   lowpulseoccupancy = lowpulseoccupancy + duration;
+
   if((millis() - lastInterval) > SensorReadInterval) {
      getDustSensorReadings();
       lowpulseoccupancy = 0;
@@ -136,12 +132,14 @@ void loop() { //                          BEGINNING OF VOID LOOP
   String quality = getAirQuality();
    DateTime = Time.timeStr(); // Current Date and Time from Particle Time class
    moist = analogRead(soilProbe);
+   if(moist >= moistThresh) {
+     runPump();
+   }
    tempC = bme.readTemperature();
    tempf = (tempC * 9.0/5.0) + 32.0;
    humidRH = bme.readHumidity();
    Serial.printf("%s\n", DateTime.c_str()); //%s prints an array of char
-   printValues();
-   delay(delayTime);
+   printValues(); 
    display.clearDisplay();
    display.setTextSize(1);
    display.setTextColor(WHITE);
@@ -154,7 +152,6 @@ void loop() { //                          BEGINNING OF VOID LOOP
    display.printlnf("Dust: %f", Dust);
    display.printlnf("Air Quality: %s", quality.c_str());
    display.display();
-   delay(5000);
 
   if ((millis()-last)>120000) {
   Serial.printf("Pinging MQTT \n");
@@ -170,16 +167,16 @@ SoilMoisture = moist;
 AirQuality = aqSensor.getValue();
 DustRead = Dust;
 
-if((millis()-lastTime > 10000)) {
+if((millis()-lastTime > 15000)) {
   if(mqtt.Update()) {
     humidObj.publish(Humidity);
     Serial.printf("Publishing %0.2f \n",Humidity); 
     tempObj.publish(Tempature);
     Serial.printf("Publishing %0.2f \n",Tempature);
-    SoilObj.publish(Tempature);
-    Serial.printf("Publishing %0.2i \n",moist); 
+    SoilObj.publish(moist);
+    Serial.printf("Publishing %i \n",moist); 
     airQualObj.publish(AirQuality);
-    Serial.printf("Publishing %0.2i \n",AirQuality);
+    Serial.printf("Publishing %i \n",AirQuality);
     dustObj.publish(DustRead);
     Serial.printf("Publishing %0.2f \n",Dust);
  }
@@ -192,16 +189,21 @@ Adafruit_MQTT_Subscribe *subscription;
         if(subscription == &buttonObjs) {
             buttonVal = atoi((char *)buttonObjs.lastread);
             Serial.printf("Received %i from Adafruit.io feed Subscribe \n",buttonVal);
+            if(buttonVal){
+              runPump();
+            }
         }
     }
 }
+
+
     // Function to connect and reconnect as necessary to the MQTT server.
-void MQTT_connect(); {
+void MQTT_connect() {
   int8_t ret;
       // Stop if already connected.
   if (mqtt.connected()) {
     return;
-  }
+}
   Serial.print("Connecting to MQTT... ");
 
   while ((ret = mqtt.connect()) != 0) { // connect will return 0 for connected
@@ -253,3 +255,9 @@ else {
   Dust = 1.1 * pow(ratio, 3) - 3.8 * pow(ratio, 2) + 520 * ratio + 0.62;
   Serial.printlnf("Dust: %f", Dust);
 }
+
+void runPump() {
+  digitalWrite(pumpPin, HIGH);
+  delay(1000);
+  digitalWrite(pumpPin, LOW);
+ }
